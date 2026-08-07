@@ -1,0 +1,35 @@
+name: 问题报告
+description: 报告可复现的程序、数据处理或页面问题
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。请勿粘贴真实社区原文、用户标识、Cookie、令牌或其他敏感信息。安全问题请按 SECURITY.md 私下报告。
+  - type: textarea
+    id: problem
+    attributes:
+      label: 问题描述
+      description: 请说明预期结果和实际结果。
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 请提供最小、离线且不含真实用户数据的复现步骤。
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: 运行环境
+      placeholder: 例如 Windows 11、Python 3.12、Edge 版本
+    validations:
+      required: true
+  - type: textarea
+    id: checks
+    attributes:
+      label: 已完成的检查
+      description: 请填写单元测试或离线校验结果；必要时可使用经过脱敏的日志摘要。

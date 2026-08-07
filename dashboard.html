@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>宝妈·小白·散户指数</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main-content">跳到主要内容</a>
+  <div class="shell">
+    <header class="topbar">
+      <a class="brand" href="#main-content" aria-label="返回主要内容顶部">
+        <span class="brand-mark">民</span>
+        <span><strong>民间温度计</strong><small>PUBLIC SENTIMENT GAUGE</small></span>
+      </a>
+      <div class="top-meta">
+        <span id="market-date">等待首次更新</span>
+        <span class="status-dot" id="confidence-dot"></span>
+        <span id="confidence-text">本地数据</span>
+      </div>
+    </header>
+
+    <main id="main-content" tabindex="-1">
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">A 股社区普通用户情绪观察</p>
+          <h1>宝妈·小白·散户指数</h1>
+          <p class="hero-intro">等权读取东方财富、新浪股吧、同花顺板块社区和淘股吧的普通用户公开讨论，观察乐观、追涨、恐慌和新手提问等社区语言。四个渠道固定各占 25%，缺失席位保留中性、不转权。全程不使用股价、成交量或涨跌家数；它观察情绪，不预测涨跌。</p>
+          <div class="updated-line">
+            <span>最近更新</span>
+            <strong id="updated-at">尚未运行“一键更新”</strong>
+          </div>
+        </div>
+        <div class="hero-score" aria-label="总指数">
+          <div class="score-ring" id="composite-ring">
+            <div><strong id="composite-score">--</strong><span>/ 100</span></div>
+          </div>
+          <div class="score-caption">
+            <span>综合温度 <span class="metric-help" tabindex="0" role="note" title="社区整体情绪温度。越高表示讨论越活跃，乐观、追涨或高强度表达越明显。" aria-label="社区整体情绪温度。越高表示讨论越活跃，乐观、追涨或高强度表达越明显。">i</span></span>
+            <strong id="composite-level">等待数据</strong>
+            <small id="composite-delta">三个分指数等权</small>
+          </div>
+        </div>
+      </section>
+
+      <section class="scale-strip" aria-label="指数温度区间">
+        <div><span>0</span><strong>冷清</strong></div>
+        <div><span>35</span><strong>偏冷</strong></div>
+        <div><span>50</span><strong>活跃</strong></div>
+        <div><span>65</span><strong>偏热</strong></div>
+        <div><span>80+</span><strong>极热</strong></div>
+      </section>
+
+      <section class="heat-snapshot" id="heat-snapshot" aria-label="新版板块社区热度摘要">
+        <div class="heat-snapshot-loading">正在读取新版板块热度……</div>
+      </section>
+
+      <section class="section-block">
+        <div class="section-head">
+          <div><p class="eyebrow">THREE LENSES</p><h2>三个分指数</h2></div>
+          <p>同一组公开信号，三个不同观察角度</p>
+        </div>
+        <div class="index-grid" id="index-cards"></div>
+        <aside class="persona-evidence-panel" id="persona-evidence-overview" aria-live="polite" hidden></aside>
+      </section>
+
+      <section class="section-block chart-section" aria-labelledby="history-title">
+        <div class="section-head history-section-head">
+          <div><p class="eyebrow">DAILY SENTIMENT HISTORY</p><h2 id="history-title">社区情绪历史轨迹</h2></div>
+          <div class="history-controls">
+            <div class="history-range" role="group" aria-label="历史图时间范围">
+              <button type="button" class="active" data-history-range="60" aria-pressed="true">最近 60 个交易日</button>
+              <button type="button" data-history-range="half-year" aria-pressed="false">最近半年</button>
+            </div>
+            <div class="history-view" role="group" aria-label="历史图数值显示方式">
+              <button type="button" class="active" data-history-view="raw" aria-pressed="true">原始日值</button>
+              <button type="button" data-history-view="smooth" aria-pressed="false">7 交易日平滑</button>
+            </div>
+          </div>
+        </div>
+        <p class="history-note" id="history-note" aria-live="polite">暂无历史记录；首个交易日更新后将自动追加</p>
+        <div class="history-summary" id="history-summary" aria-label="历史数据质量概览"></div>
+        <div class="history-kind-legend" aria-label="历史数据类型说明">
+          <span><i class="history-kind-line is-measured"></i><strong>交易日实测</strong> 交易日点击更新留下的真实快照</span>
+          <span><i class="history-kind-line is-estimated"></i><strong>可用回溯</strong> 档案、置信度与近 7 个交易日发布平台均达标</span>
+          <span><i class="history-kind-line is-provisional"></i><strong>低置信回溯</strong> 待更多样本完善，不参与 7 交易日平滑</span>
+          <span><i class="history-kind-gap"></i><strong>非交易日</strong> 不补周末或休市空点</span>
+        </div>
+        <div class="history-chart-stage" id="history-chart-stage">
+          <div class="chart-wrap" id="history-chart-wrap">
+            <svg id="history-chart" viewBox="0 0 980 360" role="img" tabindex="0" aria-label="四项指数交易日历史趋势图" aria-describedby="history-chart-help history-chart-status"></svg>
+          </div>
+          <div class="history-tooltip" id="history-tooltip" role="tooltip" hidden></div>
+        </div>
+        <div class="history-chart-footer">
+          <div class="legend" id="chart-legend" aria-label="指数颜色图例"></div>
+          <p class="history-chart-help" id="history-chart-help">鼠标或手指在图中移动可查看交易日详情；键盘聚焦后可用左右方向键切换。曲线只按真实交易日点绘制，不补周末或休市空点；低置信回溯不参与 7 交易日平滑。</p>
+        </div>
+        <p class="sr-only" id="history-chart-status" aria-live="polite"></p>
+        <details class="history-data-details">
+          <summary>查看可访问的交易日数据表</summary>
+          <div class="history-table-wrap" id="history-table-wrap"></div>
+        </details>
+      </section>
+
+      <section class="section-block">
+        <div class="section-head">
+          <div><p class="eyebrow">COMMUNITY SIGNALS</p><h2>社区热度与方向信号</h2></div>
+          <p>渠道内校准、四渠道各 25%，再按三交易日合成</p>
+        </div>
+        <div class="signal-grid" id="signal-grid"></div>
+        <div class="diagnostic-row" id="diagnostics"></div>
+      </section>
+
+      <section class="section-block sector-map-section" aria-labelledby="sector-map-title">
+        <div class="section-head">
+          <div><p class="eyebrow">SECTOR SENTIMENT MAP</p><h2 id="sector-map-title">板块情绪地图</h2></div>
+          <p>横轴看多空方向，纵轴看板块综合热度；V6 先做渠道内同日校准，再让四个渠道各占 25%</p>
+        </div>
+        <div class="sector-map-summary" id="sector-map-summary" aria-label="四象限板块数量"></div>
+        <div class="sector-map-shell">
+          <div class="sector-map" id="sector-map" role="group" aria-label="30个细分板块的情绪方向与社区热度四象限图"></div>
+        </div>
+        <div class="sector-map-foot">
+          <span><i class="sector-map-size is-small"></i><i class="sector-map-size is-large"></i>圆点越大，最近三个交易日有效样本越多</span>
+          <span>纵轴以帖子数量和参与活跃为主；情绪方向与躁动度在详情中分开显示</span>
+        </div>
+      </section>
+
+      <section class="section-block sector-section">
+        <div class="section-head">
+          <div><p class="eyebrow">SECTOR HEAT V6</p><h2>板块社区热度排行与三大指数</h2></div>
+          <p>未通过覆盖与稳定性门槛的板块显示试算值，但不硬排名</p>
+        </div>
+        <div class="sector-toolbar">
+          <div class="sector-toolbar-controls">
+            <div class="sector-parent-filter" id="sector-parent-filter" role="group" aria-label="按板块大类筛选">
+              <span>大类</span>
+              <button type="button" class="active" data-sector-parent="all" aria-pressed="true">全部</button>
+            </div>
+            <div class="sector-sort" role="group" aria-label="板块排序方式">
+              <span>排序</span>
+              <button type="button" data-sector-sort="composite" aria-pressed="false">三指数综合</button>
+              <button type="button" class="active" data-sector-sort="heat" aria-pressed="true">新版热度</button>
+              <button type="button" data-sector-sort="baoma" aria-pressed="false">宝妈</button>
+              <button type="button" data-sector-sort="novice" aria-pressed="false">小白</button>
+              <button type="button" data-sector-sort="retail" aria-pressed="false">散户</button>
+            </div>
+          </div>
+          <span id="sector-count">等待板块数据</span>
+        </div>
+        <div class="sector-index-legend">
+          <span title="观察乐观情绪和追涨讨论向更广人群扩散的程度。"><i class="is-baoma"></i>宝妈指数 <b class="metric-help" tabindex="0" role="note" aria-label="观察乐观情绪和追涨讨论向更广人群扩散的程度。">i</b></span>
+          <span title="观察新手提问、跟随热点和犹豫入场的活跃程度。"><i class="is-novice"></i>小白指数 <b class="metric-help" tabindex="0" role="note" aria-label="观察新手提问、跟随热点和犹豫入场的活跃程度。">i</b></span>
+          <span title="观察普通投资者整体情绪方向和参与活跃程度。"><i class="is-retail"></i>散户指数 <b class="metric-help" tabindex="0" role="note" aria-label="观察普通投资者整体情绪方向和参与活跃程度。">i</b></span>
+        </div>
+        <div class="sector-grid" id="sector-grid"></div>
+      </section>
+
+      <section class="section-block split-section">
+        <div>
+          <div class="section-head compact">
+            <div><p class="eyebrow">SECTOR HEAT RANK</p><h2>板块社区热度榜</h2></div>
+            <p>按新版综合热度排序</p>
+          </div>
+          <div class="rank-list" id="board-list"></div>
+        </div>
+        <div>
+          <div class="section-head compact">
+            <div><p class="eyebrow">PUBLIC POSTS</p><h2>原帖抽样</h2></div>
+            <p id="hot-source">普通用户公开标题</p>
+          </div>
+          <div class="rank-list" id="stock-list"></div>
+        </div>
+      </section>
+
+      <section class="section-block method-section">
+        <div class="section-head">
+          <div><p class="eyebrow">METHODOLOGY</p><h2>计算口径</h2></div>
+          <p>公开、透明、可调整</p>
+        </div>
+        <div class="method-grid">
+          <article>
+            <span class="method-no">01</span>
+            <h3>宝妈指数</h3>
+            <p>更强调社区追涨与乐观扩散：乐观 25%、追涨 25%、新手提问 15%、情绪强度 15%、讨论活跃 15%、板块扩散 5%。</p>
+          </article>
+          <article>
+            <span class="method-no">02</span>
+            <h3>小白指数</h3>
+            <p>更强调“怎么操作、能买吗、求教”等新手式语言：新手提问 30%、追涨 20%、乐观 15%、情绪强度与讨论活跃各 15%、板块扩散 5%。</p>
+          </article>
+          <article>
+            <span class="method-no">03</span>
+            <h3>散户指数</h3>
+            <p>更强调大众讨论方向与广泛参与：乐观 30%、追涨与讨论活跃各 20%、情绪强度 15%、新手提问 5%、板块扩散 10%。总指数为三项简单平均。</p>
+          </article>
+          <article>
+            <span class="method-no">04</span>
+            <h3>四渠道等权</h3>
+            <p>东方财富、新浪、同花顺板块社区、淘股吧各有 25% 固定席位。渠道缺失时该席位按中性处理并降低可靠度，不把影响转给仍有数据的渠道。</p>
+          </article>
+        </div>
+        <details>
+          <summary>查看数据和边界说明</summary>
+          <div class="details-copy">
+            <p>数据来自东方财富股吧、新浪股吧、同花顺板块社区及其关联场景、淘股吧的普通用户公开讨论。程序过滤资讯号、认证或机构作者、投顾文章、转发、广告与重复文本。仪表盘和开源演示不公开用户名或用户 ID；本地运行缓存仅用于去重、作者限额与失败续传，公开互动量只供页面核验，不直接抬高情绪分。</p>
+            <p>当前指数以最近三个 A 股交易日为观察窗口，固定按 50% / 30% / 20% 合成。东方财富、新浪、同花顺、淘股吧四个渠道各占 25%；每个渠道内部再平衡对应公司或板块入口。缺失席位保留为中性并降低可靠度，不把权重转送给其它渠道。同花顺使用非严格时序的热门流，因此可提供文本情绪，但不进入正式发帖量、讨论活跃或零帖核验。</p>
+            <p>“普通用户 / 草根表达”是可审计的文本筛选口径：普通评论、口语化表达、持仓感受和提问优先；认证或机构身份、长篇投研腔和跨多股推广内容过滤或降权。它只描述表达方式，不推断任何人的智力、身份或投资水平。</p>
+            <p>历史图把实测与回溯分开标示，也会在方法变化处主动断线。旧公平口径的半年数据仍保留用于查看各自方法段内部变化，但不与 V6 新口径绝对值直接比较；曲线只绘制真实交易日，不补周末或休市空点。</p>
+            <p>雪球公开页面的匿名自动访问受登录和官方抓取规则限制，因此不绕过验证、不自动计分；如需核验可人工打开官方页面。代码只用股票或板块代码定位社区，不读取任何行情字段。</p>
+            <p>“宝妈”“小白”“散户”是三种社区情绪观察角度，并非真实人群识别。中文词典法能保持透明可解释，但仍可能误判反讽、玩笑与隐语；初期历史较短，建议积累后观察趋势，不把单日分数当作交易信号。</p>
+          </div>
+        </details>
+      </section>
+
+      <section class="note-card">
+        <strong>使用方式</strong>
+        <p>在 A 股交易日双击文件夹里的 <b>“一键更新指数.cmd”</b>。程序会读取公开讨论、更新最近交易日历史并自动打开本页；周末或休市日不会新增历史点，点击后仍显示最近一个交易日的结果。</p>
+      </section>
+    </main>
+
+    <footer>
+      <p>社区文字情绪样本，仅用于教育与观察，不构成任何投资建议。</p>
+      <p>本地生成 · 数据不上传</p>
+    </footer>
+  </div>
+
+  <dialog class="sector-dialog" id="sector-dialog" aria-modal="true" aria-labelledby="sector-dialog-title" aria-describedby="sector-dialog-summary">
+    <div class="sector-dialog-shell">
+      <button type="button" class="sector-dialog-close" data-sector-close aria-label="关闭板块详情">×</button>
+      <div id="sector-detail-content"></div>
+    </div>
+  </dialog>
+
+  <script>
+    // 本地页面也可能被浏览器长期缓存。每次打开都给数据和界面脚本一个
+    // 新地址，确保交易日更新后看到磁盘上的最新结果，而不是旧标签页缓存。
+    (() => {
+      const cacheToken = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      document.querySelectorAll('link[rel="stylesheet"]').forEach((link) => {
+        const source = link.getAttribute("href").split("?")[0];
+        link.setAttribute("href", `${source}?v=${cacheToken}`);
+      });
+      const showLoadError = (source) => {
+        const target = document.querySelector("main") || document.body;
+        const notice = document.createElement("p");
+        notice.className = "load-error";
+        notice.textContent = `无法读取 ${source}，请重新双击“一键更新指数.cmd”。`;
+        target.prepend(notice);
+      };
+      const loadScript = (source, onload, onerror = () => showLoadError(source)) => {
+        const script = document.createElement("script");
+        script.src = `${source}?v=${cacheToken}`;
+        script.onload = onload;
+        script.onerror = onerror;
+        document.body.appendChild(script);
+      };
+      const loadDashboard = () => loadScript("dashboard.js", () => {
+        if (!window.INDEX_DATA?.demoData) return;
+        const target = document.querySelector("main") || document.body;
+        const notice = document.createElement("p");
+        notice.className = "demo-notice";
+        notice.textContent = window.INDEX_DATA.demoNote || "当前展示开源脱敏演示数据；双击“一键更新指数.cmd”后会切换为本机最新结果。";
+        target.prepend(notice);
+      });
+      loadScript(
+        "data.js",
+        loadDashboard,
+        () => loadScript(
+          "data.example.js",
+          loadDashboard,
+          () => showLoadError("data.js 或 data.example.js"),
+        ),
+      );
+    })();
+  </script>
+</body>
+</html>

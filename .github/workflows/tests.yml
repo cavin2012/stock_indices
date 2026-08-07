@@ -1,0 +1,41 @@
+name: Offline tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Run offline unit tests
+        env:
+          PYTHONUTF8: "1"
+        run: python -m unittest discover -s tests -p "test_*.py"
+
+      - name: Validate generated snapshot when available
+        env:
+          PYTHONUTF8: "1"
+        shell: bash
+        run: |
+          if [[ -f data/latest.json && -f data/history.json && -f data/history_meta.json && -f data.js ]]; then
+            python validate_project.py --quiet
+          else
+            echo "Runtime snapshots are intentionally not stored in Git; skipping snapshot validation."
+          fi
