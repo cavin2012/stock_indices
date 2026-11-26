@@ -51,6 +51,14 @@ class PublicPagesTests(unittest.TestCase):
         self.assertNotIn("user_id", result)
         self.assertEqual(build_public_snapshot(result)["community"]["samplePosts"], [row])
 
+    def test_public_sample_count_is_capped_at_twenty_after_deduplication(self):
+        from build_public_snapshot import build_public_snapshot
+        rows = [{"title": "帖子" + str(i), "label": "中性", "source": "测试", "publishTime": "2026-11-26T10:00:%02d+08:00" % (59-i), "platform": "sina"} for i in range(25)]
+        rows.insert(3, dict(rows[0]))
+        result = build_public_snapshot({"community": {"samplePosts": rows}, "sectorIndices": []})
+        self.assertEqual(len(result["community"]["samplePosts"]), 20)
+        self.assertEqual(len({row["title"] for row in result["community"]["samplePosts"]}), 20)
+
     def test_existing_unexpected_output_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)

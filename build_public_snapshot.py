@@ -18,7 +18,7 @@ def build_public_snapshot(snapshot: dict, cache: dict | None = None) -> dict:
             key = (post.get("platform"), post.get("title"), post.get("publishTime"))
             lookup.setdefault(key, []).append(post)
 
-    def samples(rows):
+    def samples(rows, limit=20):
         result, seen = [], set()
         for row in rows or []:
             if not isinstance(row, dict):
@@ -34,12 +34,18 @@ def build_public_snapshot(snapshot: dict, cache: dict | None = None) -> dict:
                 item["postId"] = str(post.get("id") or "")
                 item["authorKey"] = str(post.get("authorKey") or "")
             result.append(item)
+            if len(result) >= limit:
+                break
         return result
 
-    public.setdefault("community", {})["samplePosts"] = samples(snapshot.get("community", {}).get("samplePosts", []))
     source_sectors = {s.get("key"): s for s in snapshot.get("sectorIndices", [])}
+    candidates = list(snapshot.get("community", {}).get("samplePosts", []))
+    for sector in source_sectors.values():
+        candidates.extend(sector.get("samplePosts", []))
+    candidates.sort(key=lambda row: str(row.get("publishTime") or ""), reverse=True)
+    public.setdefault("community", {})["samplePosts"] = samples(candidates, limit=20)
     for sector in public.get("sectorIndices", []):
-        sector["samplePosts"] = samples(source_sectors.get(sector.get("key"), {}).get("samplePosts", []))
+        sector["samplePosts"] = samples(source_sectors.get(sector.get("key"), {}).get("samplePosts", []), limit=2)
     public.update({"publicPostsEnabled": True, "demoData": False})
     public.pop("demoNote", None)
     return public

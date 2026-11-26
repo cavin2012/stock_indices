@@ -1565,7 +1565,7 @@
     });
   }
 
-  function uniqueDisplayPosts(posts, limit = 9) {
+  function uniqueDisplayPosts(posts, limit = 20) {
     const seen = new Set();
     const selected = [];
     const ordered = [...posts].sort((a, b) => String(b.publishTime || "").localeCompare(String(a.publishTime || "")));

@@ -4005,7 +4005,7 @@ def score_results_as_of(
     }
 
 
-def unique_sample_posts(posts: Sequence[Dict[str, object]], limit: int = 12) -> List[Dict[str, object]]:
+def unique_sample_posts(posts: Sequence[Dict[str, object]], limit: int = 30) -> List[Dict[str, object]]:
     """Deduplicate display excerpts across sources before applying the limit."""
     seen: set[str] = set()
     selected: List[Dict[str, object]] = []
