@@ -35,6 +35,21 @@ class PublicPagesTests(unittest.TestCase):
             self.assertEqual(public["scores"]["composite"], 55)
             self.assertEqual(public["community"]["samplePosts"], [])
             self.assertNotIn('"data.example.js"', output.joinpath("index.html").read_text(encoding="utf-8"))
+            self.assertNotIn('id="market-evidence"', output.joinpath("index.html").read_text(encoding="utf-8"))
+            self.assertIn('id="market-evidence"', source.joinpath("dashboard.html").read_text(encoding="utf-8"))
+
+    def test_opted_in_samples_keep_public_ids_but_not_unrelated_fields(self):
+        from build_public_snapshot import build_public_snapshot
+        sample = {"title": "公开讨论", "platform": "sina", "publishTime": "2026-11-26T10:00:00+08:00"}
+        cache = {"sina:sh000001": {"posts": [{**sample, "id": "sina:123", "authorKey": "public-user", "secret": "not-for-publication"}]}}
+        result = build_public_snapshot({"community": {"samplePosts": [sample, sample]}, "user_id": "unrelated-private-id"}, cache)
+        self.assertEqual(len(result["community"]["samplePosts"]), 1)
+        row = result["community"]["samplePosts"][0]
+        self.assertEqual(row["authorKey"], "public-user")
+        self.assertEqual(row["postId"], "sina:123")
+        self.assertNotIn("secret", row)
+        self.assertNotIn("user_id", result)
+        self.assertEqual(build_public_snapshot(result)["community"]["samplePosts"], [row])
 
     def test_existing_unexpected_output_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:

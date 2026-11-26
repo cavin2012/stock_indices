@@ -2,7 +2,7 @@
 
 这是一个本地运行、每天一键更新的 A 股社区情绪仪表盘。它只分析普通用户公开讨论，不使用股价、成交量、换手率、涨跌家数、行情热榜或 RQ 数据。
 
-> 开源仓库只发布原创代码、测试和脱敏聚合演示，不发布论坛原文、帖子编号、作者键、本地缓存、历史数据库或包含原帖摘录的截图。实际更新生成的数据始终留在使用者自己的电脑上。
+> 本分支的公开快照可包含社区讨论抽样、帖子编号和平台用户标识；本机缓存与历史原始档案不上传。原项目的脱敏演示仍由 build_public_demo.py 单独生成。
 
 ![脱敏聚合演示页面](docs/dashboard-preview.jpg)
 
@@ -20,7 +20,7 @@
 
 ## 公开托管主页
 
-本分支用于发布 https://cavin2012.github.io/stock_indices/ 。GitHub Pages 只托管脱敏聚合快照，采集仍在本机执行，页面不是实时数据。配置与更新步骤见 [GitHub Pages 发布说明](docs/github-pages.md)。本项目基于 [原始开源项目](https://github.com/xzrd021/baoma-xiaobai-sanhu-zhishu) 改进，保留 MIT 许可证。
+本分支用于发布 https://cavin2012.github.io/stock_indices/ 。GitHub Pages 托管聚合快照与公开讨论抽样，采集仍在本机执行，页面不是实时数据。配置与更新步骤见 [GitHub Pages 发布说明](docs/github-pages.md)。本项目基于 [原始开源项目](https://github.com/xzrd021/baoma-xiaobai-sanhu-zhishu) 改进，保留 MIT 许可证。
 
 ## 开源版快速开始
 

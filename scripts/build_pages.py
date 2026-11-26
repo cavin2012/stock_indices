@@ -9,7 +9,8 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from build_public_demo import build_demo, find_forbidden_fields
+from build_public_demo import build_demo
+from build_public_snapshot import build_public_snapshot
 
 PUBLIC_FILES = {"index.html", "styles.css", "dashboard.js", "data.js", ".nojekyll"}
 
@@ -20,34 +21,33 @@ def build_site(output: Path, source: Path = ROOT) -> dict:
         raise ValueError("Output must be a separate directory")
     if output.exists() and any(path.name not in PUBLIC_FILES or not path.is_file() for path in output.iterdir()):
         raise ValueError("Output contains files outside the public allowlist")
-    raw = (source / "data.example.js").read_text(encoding="utf-8")
+    public_source = source / "data.public.js"
+    raw = (public_source if public_source.exists() else source / "data.example.js").read_text(encoding="utf-8")
     match = re.fullmatch(r"\s*window\.INDEX_DATA\s*=\s*(.*?)\s*;?\s*", raw, re.DOTALL)
     if not match:
         raise ValueError("Invalid public snapshot")
     snapshot = json.loads(match.group(1).removesuffix(";").rstrip())
     if not isinstance(snapshot, dict):
         raise ValueError("Public snapshot must be an object")
-    public = build_demo(snapshot)
+    public = build_public_snapshot(snapshot) if snapshot.get("publicPostsEnabled") else build_demo(snapshot)
     public.update({
         "demoData": False, "publicData": True,
-        "publicNote": "公开脱敏聚合快照：不包含论坛原文和用户标识。数据时间见下方最近更新；本页不是实时数据。",
+        "publicNote": "公开社区快照：包含公开讨论抽样及平台用户标识。数据时间见最近更新；本页不是实时数据。",
     })
     public.pop("demoNote", None)
-    forbidden = find_forbidden_fields(public)
-    if forbidden:
-        raise ValueError("Forbidden public fields: " + ", ".join(forbidden[:8]))
     page = (source / "dashboard.html").read_text(encoding="utf-8")
+    page = re.sub(r'      <section[^>]*id="market-evidence".*?</section>\s*', "", page, flags=re.DOTALL)
     page = page.replace('if (!window.INDEX_DATA?.demoData) return;', 'if (!window.INDEX_DATA?.publicData) return;')
     page = re.sub(r'notice.textContent = window.INDEX_DATA.demoNote[^;]*;', 'notice.textContent = window.INDEX_DATA.publicNote;', page)
     start = page.index('      loadScript(\n        "data.js",')
     end = page.index('    })();', start)
     page = page[:start] + '      loadScript("data.js", loadDashboard);\n' + page[end:]
     page = page.replace('无法读取 ${source}，请重新双击“一键更新指数.cmd”。', '无法读取 ${source}，请刷新页面或稍后重试。')
-    page = page.replace('本地生成 · 数据不上传', '公开脱敏聚合快照 · 非实时数据')
+    page = page.replace('本地生成 · 数据不上传', '公开社区快照 · 非实时数据')
     page = page.replace('<strong>使用方式</strong>', '<strong>数据更新说明</strong>')
-    page = re.sub(r'<p>在 A 股交易日双击文件夹里的.*?</p>', '<p>采集由维护者执行，脱敏后发布。本页展示最近一次成功发布的快照，请结合更新时间与证据覆盖情况阅读。</p>', page)
+    page = re.sub(r'<p>在 A 股交易日双击文件夹里的.*?</p>', '<p>采集由维护者执行并发布。本页展示最近一次成功发布的快照，请结合更新时间与证据覆盖情况阅读。</p>', page)
     script = (source / "dashboard.js").read_text(encoding="utf-8")
-    script = script.replace('社区样本暂不可用', '公开页不展示论坛原文').replace('程序会在下次更新时重试', '本页仅发布脱敏聚合指标')
+    script = script.replace('程序会在下次更新时重试', '等待维护者发布新的讨论抽样')
     output.mkdir(parents=True, exist_ok=True)
     contents = {
         "index.html": page, "dashboard.js": script,

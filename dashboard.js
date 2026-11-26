@@ -1597,7 +1597,7 @@
     $("#stock-list").innerHTML = posts.length ? posts.map((item, index) =>
       `<div class="rank-item">
         <span class="rank-no">${String(index + 1).padStart(2, "0")}</span>
-        <div class="rank-main"><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.source)} · ${formatPostTime(item.publishTime)}</span></div>
+        <div class="rank-main"><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.source)} · ${formatPostTime(item.publishTime)}${item.authorKey ? ` · 用户标识 ${escapeHtml(item.authorKey)}` : ""}${item.postId ? ` · 帖子 ${escapeHtml(item.postId)}` : ""}</span></div>
         <div class="rank-value"><strong class="${sentimentClass(item.label)}">${escapeHtml(item.label)}</strong><span>${Number(item.comments || 0)} 评论（展示，不计分）</span></div>
       </div>`
     ).join("") : `<div class="rank-item"><span class="rank-no">--</span><div class="rank-main"><strong>社区样本暂不可用</strong><span>程序会在下次更新时重试</span></div></div>`;
