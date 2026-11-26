@@ -912,3 +912,67 @@ footer { display: flex; justify-content: space-between; gap: 20px; padding: 24px
   .nav-icon { width: 22px; height: 22px; font-size: 21px; }
   .sector-grid, #stock-list { max-height: none; }
 }
+
+/* Wide dashboard layout: shared bounds for the sidebar and content. */
+.has-section-navigation .shell { width: min(1880px, calc(100% - 48px)); padding-left: 204px; }
+.section-navigation { left: max(24px, calc((100vw - 1880px) / 2)); width: 180px; max-height: calc(100dvh - 134px); overflow-y: auto; }
+main, main > section, .section-head > *, .rank-main, .sector-card, .index-card, .signal-card { min-width: 0; }
+.section-head { flex-wrap: wrap; gap: 16px 28px; }
+.section-head h2 { font-size: clamp(28px, 2.6vw, 42px); overflow-wrap: anywhere; }
+.section-head > p { max-width: 680px; }
+.hero { min-height: 420px; gap: 40px; padding: 44px 3% 38px; grid-template-columns: minmax(0, 1.2fr) minmax(0, .8fr); }
+.index-grid, .persona-evidence-grid, .signal-grid, .sector-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.history-summary { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.sector-map-summary, .method-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.split-section { grid-template-columns: minmax(280px, .7fr) minmax(0, 1.3fr); gap: 36px; align-items: start; }
+.rank-item { grid-template-columns: 30px minmax(0, 1fr) auto; gap: 12px; }
+.rank-main strong, .sector-post-card > p { overflow-wrap: anywhere; }
+#stock-list .rank-main span { max-width: none; white-space: normal; overflow-wrap: anywhere; font-size: 12px; line-height: 1.65; }
+#stock-list .rank-main strong { display: block; font-size: 16px; line-height: 1.8; }
+.sector-post-card > p { font-size: 16px; line-height: 1.9; }
+.sector-post-meta { flex-wrap: wrap; gap: 6px 12px; overflow-wrap: anywhere; }
+.sector-dialog { width: min(1440px, calc(100% - 48px)); }
+.sector-toolbar-controls, .top-meta { flex-wrap: wrap; }
+@media (min-width: 1700px) {
+  .sector-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (min-width: 901px) and (max-width: 1200px) {
+  .has-section-navigation .shell { width: calc(100% - 32px); padding-left: 184px; }
+  .section-navigation { left: 16px; width: 164px; }
+  .sector-grid, .signal-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .method-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .history-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .split-section { grid-template-columns: 1fr; }
+}
+@media (max-width: 900px) {
+  .has-section-navigation .shell { width: calc(100% - 32px); padding-left: 0; }
+  .section-navigation { left: auto; width: auto; max-height: none; overflow-y: hidden; }
+  .hero { grid-template-columns: 1fr; min-height: 0; padding: 32px 2%; gap: 28px; }
+  .index-grid, .signal-grid, .sector-grid, .persona-evidence-grid, .method-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .history-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .sector-map-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .split-section { grid-template-columns: 1fr; gap: 36px; }
+}
+@media (max-width: 620px) {
+  .has-section-navigation .shell { width: calc(100% - 24px); }
+  .topbar { flex-wrap: wrap; gap: 12px; padding-block: 16px; }
+  .top-meta { max-width: 100%; }
+  .hero { padding-inline: 0; }
+  .hero-score { flex-wrap: wrap; gap: 20px; }
+  .index-grid, .signal-grid, .sector-grid, .persona-evidence-grid, .method-grid { grid-template-columns: minmax(0, 1fr); }
+  .history-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sector-dialog { width: calc(100% - 16px); }
+  .rank-item { grid-template-columns: 24px minmax(0, 1fr) auto; gap: 8px; }
+  .section-head h2 { font-size: 30px; }
+}
+
+.hero h1 { font-size: clamp(40px, 4.2vw, 68px); line-height: 1.16; text-wrap: balance; }
+#board-list { max-height: 72vh; overflow-y: auto; padding-right: 10px; }
+.sector-map-point > strong { opacity: 0; pointer-events: none; font-size: 12px; line-height: 1.4; }
+.sector-map-point:hover > strong, .sector-map-point:focus-visible > strong { opacity: 1; }
+.sector-map-point > small { font-size: 11px; max-width: 230px; white-space: normal; }
+@media (max-width: 620px) {
+  .hero h1 { font-size: 42px; }
+  #board-list { max-height: 48vh; }
+  #stock-list { max-height: 72vh; }
+}
