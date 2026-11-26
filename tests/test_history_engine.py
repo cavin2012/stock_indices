@@ -391,7 +391,7 @@ class CollectorRegressionTests(unittest.TestCase):
     def test_daily_and_historical_source_layouts_are_explicit(self) -> None:
         specs, _, sector_keys = update_index.build_source_specs()
         self.assertEqual(len(update_index.SECTORS), 30)
-        self.assertEqual(len(specs), 308)
+        self.assertEqual(len(specs), 311)
         for keys in sector_keys.values():
             counts = Counter(str(specs[key]["platform"]) for key in keys)
             self.assertEqual(counts["eastmoney"], 3)
@@ -400,8 +400,15 @@ class CollectorRegressionTests(unittest.TestCase):
             self.assertIn(counts["ths"], {1, 2})
         history_two, _ = collect_history_60d.build_sources(2)
         history_one, _ = collect_history_60d.build_sources(1)
-        self.assertEqual(len(history_two), 153)
-        self.assertEqual(len(history_one), 123)
+        self.assertEqual(len(history_two), 156)
+        self.assertEqual(len(history_one), 126)
+        self.assertEqual(collect_history_60d.sina_symbol("sh000001"), "sh000001")
+        self.assertIn("name=sh000001", collect_history_60d.sina_discovery_url("sh000001"))
+        self.assertTrue(
+            {"sina:sh000001", "sina:sz399001", "sina:sz399006"}.issubset(
+                {source.key for source in history_one if "__market__" in source.sectors}
+            )
+        )
 
     def test_partial_collector_day_is_excluded_from_estimates(self) -> None:
         end, partial = build_history_60d.complete_retrospective_end(

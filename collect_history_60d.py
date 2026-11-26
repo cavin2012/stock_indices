@@ -754,11 +754,7 @@ def parse_eastmoney_page(
 
 
 def sina_symbol(code: str) -> str:
-    if code.startswith(("5", "6", "9")):
-        return "sh" + code
-    if code.startswith(("4", "8")):
-        return "bj" + code
-    return "sz" + code
+    return core.sina_symbol(code)
 
 
 def sina_discovery_url(code: str) -> str:

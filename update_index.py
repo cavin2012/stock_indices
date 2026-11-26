@@ -25,7 +25,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Mapping, Sequence, Tuple
 
-from community_archive import archive_results
+from community_archive import archive_results, load_archived_results
 from channel_fairness_model import (
     CHANNELS as FAIR_CHANNELS,
     MODEL_VERSION as FAIRNESS_MODEL_VERSION,
@@ -79,6 +79,10 @@ ACTIVITY_BREADTH_WEIGHT = 1.0 - ACTIVITY_VELOCITY_WEIGHT
 AUTHOR_DAILY_LIMIT = 3
 ESTIMATED_SOURCE_DAY_LIMIT = 8
 COLLECTOR_PAGE_LIMIT = 3
+MARKET_PAGE_LIMIT = 30
+MARKET_TIME_BUDGET_SECONDS = 45.0
+MARKET_PAGE_INTERVAL_SECONDS = 0.25
+MARKET_WINDOW_POLICY_VERSION = 1
 EASTMONEY_PAGE_SIZE = 100
 SINA_PAGE_SIZE = 50
 TAOGUBA_PAGE_SIZE = 20
@@ -97,6 +101,13 @@ MARKET_EASTMONEY_SOURCES: List[Tuple[str, str]] = [
     ("zssh000001", "上证指数吧"),
     ("zssz399001", "深证成指吧"),
     ("zssz399006", "创业板指吧"),
+]
+
+# Explicit exchange-qualified symbols avoid confusing SH000001 with SZ000001.
+MARKET_SINA_SOURCES: List[Tuple[str, str]] = [
+    ("sh000001", "上证指数"),
+    ("sz399001", "深证成指"),
+    ("sz399006", "创业板指"),
 ]
 
 POSITIVE = {
@@ -571,6 +582,33 @@ def collection_metadata(
     }
 
 
+def market_collection_policy(spec: Mapping[str, object]) -> Dict[str, object]:
+    is_market = bool(spec.get("marketWindow"))
+    return {
+        "marketWindow": is_market,
+        "pageLimit": MARKET_PAGE_LIMIT if is_market else COLLECTOR_PAGE_LIMIT,
+        "deadline": time.monotonic() + MARKET_TIME_BUDGET_SECONDS if is_market else None,
+    }
+
+
+def collection_timeout(policy: Mapping[str, object], maximum: float = 10.0) -> float:
+    deadline = policy.get("deadline")
+    if deadline is None:
+        return maximum
+    remaining = float(deadline) - time.monotonic()
+    if remaining <= 0:
+        raise RuntimeError("market_time_budget_exhausted")
+    return min(maximum, remaining)
+
+
+def page_boundary(times: Sequence[datetime], row_count: int) -> datetime | None:
+    # Every row must have a timestamp; max(tail) prevents an old pinned row
+    # from falsely proving that the intervening stream has been traversed.
+    if not times or len(times) != row_count:
+        return None
+    return max(times[-min(10, len(times)):])
+
+
 def fetch_eastmoney(spec: Mapping[str, object]) -> Dict[str, object]:
     code = str(spec["code"])
     label = str(spec["name"])
@@ -584,8 +622,19 @@ def fetch_eastmoney(spec: Mapping[str, object]) -> Dict[str, object]:
     coverage_status = "unknown"
     pagination_mode = "page"
     target_reached = False
+    policy = market_collection_policy(spec)
+    window_start_covered = False
+    chronological_boundary: datetime | None = None
+    seen_pages: set[Tuple[str, ...]] = set()
 
-    for page_number in range(1, COLLECTOR_PAGE_LIMIT + 1):
+    for page_number in range(1, int(policy["pageLimit"]) + 1):
+        if policy["marketWindow"]:
+            if page_number > 1:
+                time.sleep(min(MARKET_PAGE_INTERVAL_SECONDS, max(0.0, float(policy["deadline"]) - time.monotonic())))
+            if time.monotonic() >= float(policy["deadline"]):
+                coverage_status = "time_budget_exhausted"
+                cap_hit = True
+                break
         payload: Dict[str, object] | None = None
         last_error: Exception | None = None
         query = urllib.parse.urlencode({
@@ -602,7 +651,7 @@ def fetch_eastmoney(spec: Mapping[str, object]) -> Dict[str, object]:
         api_url = "https://gbapi.eastmoney.com/webarticlelist/api/Article/Articlelist?" + query
         for attempt in range(3):
             try:
-                candidate = request_json(api_url, "eastmoney", attempts=1, timeout=10)
+                candidate = request_json(api_url, "eastmoney", attempts=1, timeout=collection_timeout(policy))
                 message = str(candidate.get("me") or "").strip()
                 rows_value = candidate.get("re")
                 # Quiet boards use this terminal marker even on page one.
@@ -617,17 +666,26 @@ def fetch_eastmoney(spec: Mapping[str, object]) -> Dict[str, object]:
                 break
             except RuntimeError as exc:
                 last_error = exc
+                if policy["marketWindow"] and time.monotonic() >= float(policy["deadline"]):
+                    break
                 if attempt < 2:
-                    time.sleep(1.0 + attempt)
+                    delay = 1.0 + attempt
+                    if policy["marketWindow"]:
+                        delay = min(delay, max(0.0, float(policy["deadline"]) - time.monotonic()))
+                    time.sleep(delay)
 
         if payload is None:
             # The public HTML fallback only exposes one embedded page.  It is
             # useful as a last resort, but is explicitly marked as completeness
             # unknown instead of pretending the three-day window was traversed.
             if page_number > 1:
+                if policy["marketWindow"]:
+                    coverage_status = "partial_fetch_failure"
+                    cap_hit = None
+                    break
                 raise RuntimeError(str(last_error or f"{label} 第 {page_number} 页读取失败"))
             try:
-                page = request_text(page_url, "eastmoney", attempts=1, timeout=10)
+                page = request_text(page_url, "eastmoney", attempts=1, timeout=collection_timeout(policy))
                 if "身份核实" in page:
                     raise RuntimeError(f"{label} 触发站点临时身份核实")
                 matched = re.search(r"var\s+article_list\s*=\s*(\{.*?\});", page, re.DOTALL)
@@ -640,6 +698,12 @@ def fetch_eastmoney(spec: Mapping[str, object]) -> Dict[str, object]:
                 raise RuntimeError(str(last_error or exc)) from exc
 
         rows = payload.get("re") if isinstance(payload.get("re"), list) else []
+        signature = tuple(str(row.get("post_id")) for row in rows if isinstance(row, Mapping))
+        if policy["marketWindow"] and signature and signature in seen_pages:
+            coverage_status = "repeated_page"
+            cap_hit = None
+            break
+        seen_pages.add(signature)
         page_count += 1
         raw_rows += len(rows)
         page_times: List[datetime] = []
@@ -656,20 +720,29 @@ def fetch_eastmoney(spec: Mapping[str, object]) -> Dict[str, object]:
         total_count = safe_int(payload.get("count"), 0)
         source_exhausted = (
             not rows
-            or len(rows) < EASTMONEY_PAGE_SIZE
+            or (not policy["marketWindow"] and len(rows) < EASTMONEY_PAGE_SIZE)
+            or str(payload.get("me") or "") == "到底啦"
             or (total_count > 0 and total_count <= page_number * EASTMONEY_PAGE_SIZE)
         )
-        if reached_target:
-            target_reached = True
-            coverage_status = "third_trading_day_reached"
+        target_reached = target_reached or reached_target
+        boundary = page_boundary(page_times, len(rows))
+        if pagination_mode == "page" and boundary is not None:
+            chronological_boundary = boundary
+        window_start_covered = (
+            chronological_boundary is not None
+            and chronological_boundary.date() < third_scoring_day()
+        )
+        if (window_start_covered if policy["marketWindow"] else reached_target):
+            coverage_status = "window_start_covered" if policy["marketWindow"] else "third_trading_day_reached"
             break
         if pagination_mode != "page":
             coverage_status = "single_page_fallback_unknown"
             break
         if source_exhausted:
+            window_start_covered = bool(policy["marketWindow"])
             coverage_status = "source_exhausted_before_third_trading_day"
             break
-        if page_number == COLLECTOR_PAGE_LIMIT:
+        if page_number == int(policy["pageLimit"]):
             cap_hit = True
             coverage_status = "page_cap_reached_before_third_trading_day"
 
@@ -731,6 +804,11 @@ def fetch_eastmoney(spec: Mapping[str, object]) -> Dict[str, object]:
         "coverageStatus": coverage_status,
         "paginationMode": pagination_mode,
         "rawRowsEstimated": False,
+        "marketWindowPolicyVersion": MARKET_WINDOW_POLICY_VERSION if policy["marketWindow"] else None,
+        "windowStartCovered": window_start_covered,
+        "chronologicalBoundary": chronological_boundary.isoformat() if chronological_boundary else None,
+        "pageLimit": policy["pageLimit"],
+        "timeBudgetSeconds": MARKET_TIME_BUDGET_SECONDS if policy["marketWindow"] else None,
     }
 
 
@@ -738,6 +816,8 @@ SINA_BIDS: Dict[str, object] = dict(load_json(SINA_BID_CACHE_PATH, {}) or {})
 
 
 def sina_symbol(code: str) -> str:
+    if re.fullmatch(r"(?:sh|sz|bj)\d{6}", code.lower()):
+        return code.lower()
     if code.startswith(("5", "6", "9")):
         return "sh" + code
     if code.startswith(("4", "8")):
@@ -784,23 +864,47 @@ def fetch_sina(spec: Mapping[str, object]) -> Dict[str, object]:
     cap_hit: bool | None = False
     coverage_status = "unknown"
     target_reached = False
+    policy = market_collection_policy(spec)
+    window_start_covered = False
+    chronological_boundary: datetime | None = None
+    seen_pages: set[Tuple[str, ...]] = set()
     cursor_value = ""
     cursor_tid = ""
     seen_cursors: set[Tuple[str, str]] = set()
     api_url = ""
 
-    for page_number in range(1, COLLECTOR_PAGE_LIMIT + 1):
+    for page_number in range(1, int(policy["pageLimit"]) + 1):
+        if policy["marketWindow"]:
+            if page_number > 1:
+                time.sleep(min(MARKET_PAGE_INTERVAL_SECONDS, max(0.0, float(policy["deadline"]) - time.monotonic())))
+            if time.monotonic() >= float(policy["deadline"]):
+                coverage_status = "time_budget_exhausted"
+                cap_hit = True
+                break
         query: Dict[str, object] = {"s": "h5bar", "bid": bid, "num": SINA_PAGE_SIZE}
         if cursor_value and cursor_tid:
             query["relate_value"] = cursor_value
             query["relate_tid"] = cursor_tid
         api_url = "https://guba.sina.cn/api/?" + urllib.parse.urlencode(query)
-        payload = request_json(api_url, "sina", attempts=2, timeout=12)
+        try:
+            payload = request_json(api_url, "sina", attempts=1 if policy["marketWindow"] else 2, timeout=collection_timeout(policy, 12.0))
+        except RuntimeError:
+            if policy["marketWindow"] and all_rows:
+                coverage_status = "partial_fetch_failure"
+                cap_hit = None
+                break
+            raise
         data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
         rows = data.get("threads") if isinstance(data, dict) else []
         if not isinstance(rows, list):
             raise RuntimeError(f"{label} 返回结构异常")
 
+        signature = tuple(str(row.get("tid")) for row in rows if isinstance(row, Mapping))
+        if policy["marketWindow"] and signature and signature in seen_pages:
+            coverage_status = "repeated_page"
+            cap_hit = None
+            break
+        seen_pages.add(signature)
         page_count += 1
         raw_rows += len(rows)
         page_times: List[datetime] = []
@@ -814,11 +918,21 @@ def fetch_sina(spec: Mapping[str, object]) -> Dict[str, object]:
                 page_times.append(observed)
 
         reached_target = page_reaches_third_scoring_day(page_times)
-        if reached_target:
-            target_reached = True
-            coverage_status = "third_trading_day_reached"
+        target_reached = target_reached or reached_target
+        boundary = page_boundary(page_times, len(rows))
+        if boundary is not None:
+            chronological_boundary = boundary
+        window_start_covered = (
+            chronological_boundary is not None
+            and chronological_boundary.date() < third_scoring_day()
+        )
+        if (window_start_covered if policy["marketWindow"] else reached_target):
+            coverage_status = "window_start_covered" if policy["marketWindow"] else "third_trading_day_reached"
             break
-        if len(rows) < SINA_PAGE_SIZE or not rows:
+        # A short page may still have a valid continuation cursor (e.g. 49/50).
+        # Only an empty page proves exhaustion; stalled cursors remain unknown.
+        if not rows:
+            window_start_covered = bool(policy["marketWindow"])
             coverage_status = "source_exhausted_before_third_trading_day"
             break
 
@@ -832,7 +946,7 @@ def fetch_sina(spec: Mapping[str, object]) -> Dict[str, object]:
             break
         seen_cursors.add(next_cursor)
         cursor_value, cursor_tid = next_cursor
-        if page_number == COLLECTOR_PAGE_LIMIT:
+        if page_number == int(policy["pageLimit"]):
             cap_hit = True
             coverage_status = "page_cap_reached_before_third_trading_day"
 
@@ -893,6 +1007,11 @@ def fetch_sina(spec: Mapping[str, object]) -> Dict[str, object]:
         "coverageStatus": coverage_status,
         "paginationMode": "cursor",
         "rawRowsEstimated": False,
+        "marketWindowPolicyVersion": MARKET_WINDOW_POLICY_VERSION if policy["marketWindow"] else None,
+        "windowStartCovered": window_start_covered,
+        "chronologicalBoundary": chronological_boundary.isoformat() if chronological_boundary else None,
+        "pageLimit": policy["pageLimit"],
+        "timeBudgetSeconds": MARKET_TIME_BUDGET_SECONDS if policy["marketWindow"] else None,
     }
 
 
@@ -1405,7 +1524,7 @@ def build_source_specs() -> Tuple[Dict[str, Dict[str, object]], List[str], Dict[
 
     for code, name in MARKET_EASTMONEY_SOURCES:
         key = f"eastmoney:{code}"
-        specs[key] = {"key": key, "platform": "eastmoney", "code": code, "name": name}
+        specs[key] = {"key": key, "platform": "eastmoney", "code": code, "name": name, "marketWindow": True}
         market_keys.append(key)
     ths_market_key = "ths:market:1A0001"
     specs[ths_market_key] = {
@@ -1417,6 +1536,11 @@ def build_source_specs() -> Tuple[Dict[str, Dict[str, object]], List[str], Dict[
         "preferScene": False,
     }
     market_keys.append(ths_market_key)
+
+    for symbol, name in MARKET_SINA_SOURCES:
+        key = f"sina:{symbol}"
+        specs[key] = {"key": key, "platform": "sina", "code": symbol, "name": name, "marketWindow": True}
+        market_keys.append(key)
 
     for sector_key, definition in SECTORS.items():
         keys: List[str] = []
@@ -1620,6 +1744,118 @@ def accumulate_taoguba_snapshots(
         "snapshotAccumulated": True,
         "snapshotAccumulatedPostCount": len(merged),
         "volumeIsLowerBound": True,
+    }
+
+
+def merge_window_evidence(
+    current: Mapping[str, Dict[str, object]],
+    archived: Mapping[str, Dict[str, object]],
+    specs: Mapping[str, Dict[str, object]],
+    as_of: datetime,
+) -> Dict[str, Dict[str, object]]:
+    """Reuse only already observed window posts; archive rows never prove zeroes."""
+    days = set(scoring_trading_days(as_of))
+    merged: Dict[str, Dict[str, object]] = {}
+    for key in sorted(set(current) | (set(archived) & set(specs))):
+        live = current.get(key)
+        saved = archived.get(key, {})
+        base = dict(live) if live is not None else {
+            **specs[key], "posts": [], "fresh": False, "archive": True,
+            "url": "", "chronological": False, "rawRowsEstimated": True,
+            "coverageStatus": "archive_samples_only", "freshFetchedNow": False,
+        }
+        by_id: Dict[str, Dict[str, object]] = {}
+        archive_ids: set[str] = set()
+        skipped_quality = 0
+        for is_archive, rows in ((True, saved.get("posts", [])), (False, base.get("posts", []))):
+            for original in rows:
+                post = dict(original)
+                published = post.get("published")
+                if not isinstance(published, datetime):
+                    published = parse_time(post.get("publishTime"))
+                if published is None or published.date() not in days or published > as_of:
+                    continue
+                if is_archive:
+                    first_seen = parse_time(post.get("firstCollectedAt") or post.get("collectedAt"))
+                    if first_seen is None or first_seen > as_of:
+                        continue
+                    # Old THS archives omitted the full-length/style evidence.
+                    # Do not turn such an unknown long/promotional post into a short comment.
+                    if str(base.get("platform")) == "ths" and "originalLength" not in post:
+                        skipped_quality += 1
+                        continue
+                post["published"] = published
+                post["sourceKey"] = key
+                identity = str(post.get("id") or normalize_text(str(post.get("title") or "")))
+                if is_archive:
+                    archive_ids.add(identity)
+                by_id[identity] = post  # current fields take precedence for the same id
+        seen_text: set[str] = set()
+        posts: List[Dict[str, object]] = []
+        for post in sorted(by_id.values(), key=lambda row: (row["published"], str(row.get("id") or "")), reverse=True):
+            text_key = normalize_text(str(post.get("title") or ""))
+            if text_key and text_key in seen_text:
+                continue
+            seen_text.add(text_key)
+            posts.append(post)
+        posts, overflow = apply_author_daily_limit(posts)
+        live_ids = {str(row.get("id") or normalize_text(str(row.get("title") or ""))) for row in base.get("posts", [])}
+        reused = sum(str(row.get("id") or normalize_text(str(row.get("title") or ""))) in archive_ids - live_ids for row in posts)
+        merged[key] = {
+            **base, "posts": posts, "archiveReusedPosts": reused,
+            "archiveQualityUnknownSkipped": skipped_quality, "mergedAuthorOverflow": overflow,
+        }
+    return merged
+
+
+def market_window_diagnostics(
+    results: Mapping[str, Dict[str, object]],
+    market_keys: Sequence[str],
+    daily_rows: Mapping[str, Mapping[str, Mapping[str, object]]],
+    as_of: datetime,
+) -> Dict[str, object]:
+    days = scoring_trading_days(as_of)
+    rows: List[Dict[str, object]] = []
+    for key in market_keys:
+        source = results.get(key, {})
+        boundary = parse_time(source.get("chronologicalBoundary"))
+        fetched = parse_time(source.get("fetchedAt"))
+        verified = verified_zero_days_for_source(source, days, as_of)
+        source_days = []
+        for day in days:
+            info = daily_rows.get(key, {}).get(day.isoformat(), {})
+            sample_count = safe_int(info.get("sampleCount"))
+            known = source.get("marketWindowPolicyVersion") == MARKET_WINDOW_POLICY_VERSION
+            complete = bool(
+                known and source.get("chronological") and fetched is not None
+                and fetched >= datetime(day.year, day.month, day.day, 15, 10, tzinfo=CN_TZ)
+                and (source.get("windowStartCovered") or (boundary is not None and boundary.date() < day))
+                and source.get("paginationMode") != "html_single_page_fallback"
+            )
+            source_days.append({
+                "date": day.isoformat(), "status": str(info.get("status") or "unobserved"),
+                "sampleCount": sample_count, "streamCovered": complete,
+                "verifiedZero": str(info.get("status") or "") == "verified_zero" and day.isoformat() in verified,
+            })
+        rows.append({
+            "key": key, "platform": source.get("platform") or key.split(":", 1)[0],
+            "name": source.get("name") or key, "fetchedAt": source.get("fetchedAt"),
+            "freshFetchedNow": bool(source.get("freshFetchedNow")),
+            "pageCount": safe_int(source.get("pageCount")), "pageLimit": source.get("pageLimit"),
+            "coverageStatus": source.get("coverageStatus") or "unobserved",
+            "thirdTradingDayReached": bool(source.get("thirdTradingDayReached")),
+            "windowStartCovered": bool(source.get("windowStartCovered")),
+            "chronologicalBoundary": source.get("chronologicalBoundary"),
+            "archiveReusedPosts": safe_int(source.get("archiveReusedPosts")),
+            "days": source_days,
+        })
+    return {
+        "tradingDays": [day.isoformat() for day in days], "sources": rows,
+        "missingChannels": [channel for channel in FAIR_CHANNELS if not any(
+            row["platform"] == channel and any(day["status"] == "observed" for day in row["days"])
+            for row in rows
+        )],
+        "note": "有样本不等于时序覆盖完整；档案补样不证明零帖，缺失席位仍保持中性。",
     }
 
 
@@ -2564,13 +2800,26 @@ def verified_zero_days_for_source(
     if bool(source.get("rawRowsEstimated")):
         return set()
     coverage_status = str(source.get("coverageStatus") or "")
-    coverage_proved = bool(source.get("thirdTradingDayReached")) or coverage_status in {
+    coverage_proved = (
+        bool(source.get("chronologicalBoundary"))
+        if source.get("marketWindowPolicyVersion") is not None
+        else bool(source.get("thirdTradingDayReached"))
+    ) or coverage_status in {
         "third_trading_day_reached",
         "source_exhausted_before_third_trading_day",
     }
     if not coverage_proved:
         return set()
-    oldest = parse_time(source.get("oldestSeen"))
+    # New market collectors expose a conservative chronological tail boundary.
+    # A stale pinned post in oldestSeen must never prove a missing day is zero.
+    if source.get("marketWindowPolicyVersion") is not None:
+        coverage_proved = bool(source.get("chronologicalBoundary")) or bool(source.get("windowStartCovered"))
+        if not coverage_proved:
+            return set()
+        oldest_value = source.get("chronologicalBoundary")
+    else:
+        oldest_value = source.get("oldestSeen")
+    oldest = parse_time(oldest_value)
     fetched = parse_time(source.get("fetchedAt"))
     if oldest is None or fetched is None:
         return set()
@@ -3321,6 +3570,9 @@ def source_public_info(result: Mapping[str, object]) -> Dict[str, object]:
             "cacheAge": result.get("cacheAge"),
             "coverageStatus": result.get("coverageStatus"),
             "paginationMode": result.get("paginationMode"),
+            "windowStartCovered": bool(result.get("windowStartCovered")),
+            "chronologicalBoundary": result.get("chronologicalBoundary"),
+            "archiveReusedPosts": safe_int(result.get("archiveReusedPosts")),
         },
     }
 
@@ -3647,7 +3899,7 @@ def score_results_as_of(
     eastmoney_market_units = [code for code, _ in MARKET_EASTMONEY_SOURCES]
     market_channel_specs = {
         "eastmoney": {"mode": "sector", "expectedUnits": eastmoney_market_units, "allowAttention": True},
-        "sina": {"mode": "sector", "expectedUnits": ["broad-market"], "allowAttention": True},
+        "sina": {"mode": "sector", "expectedUnits": [symbol for symbol, _ in MARKET_SINA_SOURCES], "allowAttention": True},
         "ths": {"mode": "sector", "expectedUnits": ["1A0001"], "allowAttention": False},
         "taoguba": {"mode": "sector", "expectedUnits": ["broad-market"], "allowAttention": True},
     }
@@ -3660,6 +3912,7 @@ def score_results_as_of(
     }
     market_unit_names = {
         **{code: name for code, name in MARKET_EASTMONEY_SOURCES},
+        **dict(MARKET_SINA_SOURCES),
         "1A0001": "同花顺上证指数讨论",
         "broad-market": "全市场社区席位",
     }
@@ -3678,6 +3931,7 @@ def score_results_as_of(
         "activityIndex": broad_fair["signals"].get("attention", 50.0),
         "weightedDailyPosts3d": broad_fair.get("metrics", {}).get("coverageAdjustedVolume") or 0.0,
         "fairness": broad_fair["diagnostics"],
+        "marketWindowCoverage": market_window_diagnostics(results, formal_market_keys, daily_calibrated_rows, as_of),
         "thsMarketFeedFormalEmotionTargetWeight": 0.25,
         "thsMarketFeedFormalAttentionWeight": 0.0,
     })
@@ -3751,6 +4005,21 @@ def score_results_as_of(
     }
 
 
+def unique_sample_posts(posts: Sequence[Dict[str, object]], limit: int = 12) -> List[Dict[str, object]]:
+    """Deduplicate display excerpts across sources before applying the limit."""
+    seen: set[str] = set()
+    selected: List[Dict[str, object]] = []
+    for post in sorted(posts, key=lambda item: str(item.get("publishTime") or ""), reverse=True):
+        key = normalize_text(str(post.get("title") or ""))
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        selected.append(post)
+        if len(selected) >= limit:
+            break
+    return selected
+
+
 def build_snapshot() -> Dict[str, object]:
     market_day = scoring_market_day(NOW)
     specs, market_keys, sector_source_keys = build_source_specs()
@@ -3758,7 +4027,10 @@ def build_snapshot() -> Dict[str, object]:
     # 中断后 45 分钟内重试时直接续用刚刚成功的来源，只补失败项。
     fresh_results: Dict[str, Dict[str, object]] = {
         key: {**value, "fresh": True, "resumedFromCache": True}
-        for key, value in cached.items() if key in specs and cache_is_recent(value)
+        for key, value in cached.items()
+        if key in specs and cache_is_recent(value)
+        and (not specs[key].get("marketWindow")
+             or value.get("marketWindowPolicyVersion") == MARKET_WINDOW_POLICY_VERSION)
     }
     failures: List[str] = []
     total_sources = len(specs)
@@ -3851,6 +4123,14 @@ def build_snapshot() -> Dict[str, object]:
     save_forum_cache(results)
     save_json(SINA_BID_CACHE_PATH, SINA_BIDS)
     save_json(THS_CONFIG_CACHE_PATH, THS_CONFIG)
+    archive_stats = archive_results(results, COMMUNITY_ARCHIVE_DIR, collected_at=NOW)
+    days = scoring_trading_days(NOW)
+    archived = load_archived_results(
+        COMMUNITY_ARCHIVE_DIR,
+        start=datetime.combine(days[-1], datetime.min.time(), tzinfo=CN_TZ),
+        end=NOW, observed_at=NOW,
+    )
+    results = merge_window_evidence(results, archived, specs, NOW)
     scored = score_results_as_of(
         results,
         market_keys,
@@ -3889,7 +4169,6 @@ def build_snapshot() -> Dict[str, object]:
             **dict(scored.get("sectorHeatAudit") or {}),
             **temporal_audit,
         }
-    archive_stats = archive_results(results, COMMUNITY_ARCHIVE_DIR, collected_at=NOW)
     all_sample_posts = broad["diagnostics"]["samplePosts"] + sum(
         int(item["metrics"]["samplePosts"]) for item in sector_indices
     )
@@ -3908,7 +4187,7 @@ def build_snapshot() -> Dict[str, object]:
         record_type=MEASURED,
         fresh_source_count=int(scored["availableFreshSourceCount"]),
         captured_at=NOW,
-        methodology="community_text_four_channel_grassroots_three_trading_day_v3",
+        methodology="community_text_four_channel_grassroots_three_trading_day_v5_archived_window",
     )
     history = upsert_history(history, history_point)
     history_meta = build_history_meta(history, updated_at=NOW)
@@ -3923,8 +4202,7 @@ def build_snapshot() -> Dict[str, object]:
     all_sector_samples: List[Dict[str, object]] = []
     for item in sector_indices:
         all_sector_samples.extend(item["samplePosts"][:2])
-    community_samples = broad["samplePosts"] + all_sector_samples
-    community_samples.sort(key=lambda item: str(item.get("publishTime") or ""), reverse=True)
+    community_samples = unique_sample_posts(broad["samplePosts"] + all_sector_samples)
     platform_counts = {
         platform: sum(1 for result in results.values() if result.get("platform") == platform)
         for platform in PLATFORM_NAMES
@@ -3962,6 +4240,8 @@ def build_snapshot() -> Dict[str, object]:
         "parentSectorSummary": scored.get("parentSectorSummary", []),
         "coverage": history_point["coverage"],
         "archiveAddedPosts": archive_stats["added"],
+        "archiveReusedPosts": sum(safe_int(row.get("archiveReusedPosts")) for row in results.values()),
+        "archiveQualityUnknownSkipped": sum(safe_int(row.get("archiveQualityUnknownSkipped")) for row in results.values()),
         "archiveExistingPosts": archive_stats["existing"],
         "sectorHeatModel": scored.get("sectorHeatAudit", {}),
         "fairnessModelVersion": FAIRNESS_MODEL_VERSION,
@@ -3992,8 +4272,8 @@ def build_snapshot() -> Dict[str, object]:
         "version": VERSION,
         "sectorCatalogVersion": SECTOR_CATALOG_VERSION,
         "sectorCatalogId": SECTOR_CATALOG_ID,
-        "methodology": "community_text_four_channel_grassroots_three_trading_day_v3",
-        "scoringModel": "four_channels_equal_then_units_equal_grassroots_50_30_20_v3",
+        "methodology": "community_text_four_channel_grassroots_three_trading_day_v5_archived_window",
+        "scoringModel": "four_channels_equal_then_units_equal_grassroots_50_30_20_v5_archived_window",
         "marketDate": date_key,
         "updatedAt": NOW.isoformat(),
         "confidence": confidence,
@@ -4018,6 +4298,7 @@ def build_snapshot() -> Dict[str, object]:
             "window": "仅最近3个A股交易日文本；先在每个渠道内部按固定单位席位聚合，再以最近50%/上一交易日30%/上两个交易日20%合成；缺失渠道或单位保持中性且不重新分权",
             "tradingCalendar": f"A股交易日历（{calendar_mode(market_day)}）；周末与休市帖子不计分，非交易日更新归属最近交易日",
             "marketFormula": "固定席位为大盘社区40% + 板块社区50% + 热度扩散面10%；细分板块在大类内等权、8个大类再等权；缺失席位保持中性并降低置信度，不把权重转送给其余来源",
+            "marketCommunityCoverage": "大盘入口：东方财富与新浪各读取上证、深证、创业板指数讨论，同花顺读取上证指数讨论；淘股吧指数页未通过近期样本验证，大盘席位保持未观测，不用个股或推荐榜替代。",
             "marketPriceUsed": False,
             "rqUsed": False,
             "xueqiuUsed": False,

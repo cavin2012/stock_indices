@@ -1565,6 +1565,20 @@
     });
   }
 
+  function uniqueDisplayPosts(posts, limit = 9) {
+    const seen = new Set();
+    const selected = [];
+    const ordered = [...posts].sort((a, b) => String(b.publishTime || "").localeCompare(String(a.publishTime || "")));
+    for (const post of ordered) {
+      const key = String(post.title || "").toLowerCase().replace(/[^0-9a-z\u4e00-\u9fff]/g, "");
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      selected.push(post);
+      if (selected.length >= limit) break;
+    }
+    return selected;
+  }
+
   function renderRanks(snapshot) {
     const sectors = [...(snapshot.sectorIndices || [])]
       .filter((item) => sectorIsAvailable(item) && item.metrics?.fairness?.rankEligible === true && item.heatRank)
@@ -1578,7 +1592,7 @@
       </div>`
     ).join("") : `<div class="rank-item"><span class="rank-no">--</span><div class="rank-main"><strong>暂不生成硬排名</strong><span>待至少 5 个板块通过渠道覆盖、有效样本与稳定性门槛后自动恢复</span></div></div>`;
 
-    const posts = (snapshot.community?.samplePosts || []).slice(0, 9);
+    const posts = uniqueDisplayPosts(snapshot.community?.samplePosts || []);
     $("#hot-source").textContent = snapshot.sources?.community || "普通用户公开标题";
     $("#stock-list").innerHTML = posts.length ? posts.map((item, index) =>
       `<div class="rank-item">
@@ -1587,6 +1601,30 @@
         <div class="rank-value"><strong class="${sentimentClass(item.label)}">${escapeHtml(item.label)}</strong><span>${Number(item.comments || 0)} 评论（展示，不计分）</span></div>
       </div>`
     ).join("") : `<div class="rank-item"><span class="rank-no">--</span><div class="rank-main"><strong>社区样本暂不可用</strong><span>程序会在下次更新时重试</span></div></div>`;
+  }
+
+  function renderMarketEvidence(snapshot) {
+    const panel = $("#market-evidence");
+    const coverage = snapshot.diagnostics?.marketWindowCoverage;
+    if (!panel || !coverage?.sources?.length) return;
+    panel.hidden = false;
+    const names = { eastmoney: "东方财富", sina: "新浪", ths: "同花顺", taoguba: "淘股吧" };
+    const reliability = Number(snapshot.diagnostics?.fairness?.reliabilityPercent || 0);
+    $("#market-evidence-summary").textContent = "大盘证据可靠度 " + reliability.toFixed(1) + "%（不是预测准确率）";
+    const missing = (coverage.missingChannels || []).map((key) => names[key] || key).join("、");
+    const reused = coverage.sources.reduce((sum, row) => sum + Number(row.archiveReusedPosts || 0), 0);
+    $("#market-evidence-note").textContent = "有样本不等于时序完整；档案补样 " + reused + " 条。单元格显示有效样本数及覆盖状态。" + (missing ? "缺失渠道：" + missing + "，其席位保留中性。" : "");
+    const headings = (coverage.tradingDays || []).map((day) => '<th scope="col">' + escapeHtml(day) + '</th>').join("");
+    const stops = { window_start_covered: "窗口边界已覆盖", source_exhausted_before_third_trading_day: "公开流已读完", time_budget_exhausted: "达到时间预算", page_cap_reached_before_third_trading_day: "达到页数预算", repeated_page: "遇到重复页", partial_fetch_failure: "中途读取失败", non_chronological_hot_feed: "热门推荐流", cursor_stalled_before_third_trading_day: "翻页游标停滞", archive_samples_only: "仅档案样本" };
+    const rows = coverage.sources.map((row) => {
+      const cells = (row.days || []).map((day) => {
+        const status = day.verifiedZero ? "核验零帖" : day.status !== "observed" ? "未观测" : day.streamCovered ? "时序已覆盖" : "时序不完整";
+        return '<td>' + Number(day.sampleCount || 0) + ' 条<br><small>' + status + '</small></td>';
+      }).join("");
+      const time = row.fetchedAt ? escapeHtml(formatDateTime(row.fetchedAt)) + (!row.freshFetchedNow ? " · 缓存" : "") : "仅档案样本";
+      return '<tr><th scope="row">' + escapeHtml(names[row.platform] || row.platform) + ' · ' + escapeHtml(row.name) + '</th>' + cells + '<td>' + Number(row.pageCount || 0) + ' 页' + (row.pageLimit ? ' / 上限 ' + Number(row.pageLimit) : '') + '<br><small>' + escapeHtml(stops[row.coverageStatus] || '覆盖待核验') + '<br>' + time + '</small></td></tr>';
+    }).join("");
+    $("#market-evidence-table").innerHTML = '<table class="history-table"><caption>大盘固定入口的三个交易日证据；时序覆盖不代表社区全量普查</caption><thead><tr><th scope="col">讨论入口</th>' + headings + '<th scope="col">本轮读取</th></tr></thead><tbody>' + rows + '</tbody></table>';
   }
 
   function renderEmpty() {
@@ -1614,6 +1652,7 @@
   }
 
   renderHeader(data);
+  renderMarketEvidence(data);
   renderHeatSnapshot(data);
   renderIndexCards(data);
   renderPersonaEvidenceOverview(data);

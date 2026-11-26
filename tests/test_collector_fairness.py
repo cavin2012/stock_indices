@@ -203,6 +203,75 @@ class CollectorFairnessTests(unittest.TestCase):
         repeat_posts = [post for post in result["posts"] if post["authorKey"] == "repeat"]
         self.assertEqual(len(repeat_posts), 9)
 
+    def test_sina_explicit_index_symbol_does_not_resolve_to_ping_an(self) -> None:
+        self.assertEqual(core.sina_symbol("000001"), "sz000001")
+        self.assertEqual(core.sina_symbol("sh000001"), "sh000001")
+        self.assertEqual(core.sina_symbol("SZ399006"), "sz399006")
+        with (
+            patch.dict(core.SINA_BIDS, {"000001": "stock-bid"}, clear=True),
+            patch.object(core, "request_text", return_value='{"bid":"9279"}') as request,
+        ):
+            self.assertEqual(core.discover_sina_bid("sh000001"), "9279")
+            self.assertEqual(core.SINA_BIDS["000001"], "stock-bid")
+        self.assertIn("name=sh000001", request.call_args.args[0])
+
+    def test_sina_short_page_continues_until_third_day(self) -> None:
+        page_one = [sina_row("first", "2026-08-06 10:00:00", "a")]
+        page_two = [sina_row("older", "2026-08-04 10:00:00", "b")]
+        with (
+            patch.object(core, "discover_sina_bid", return_value="9279"),
+            patch.object(core, "request_json", side_effect=[
+                {"data": {"threads": page_one}},
+                {"data": {"threads": page_two}},
+            ]) as request,
+        ):
+            result = core.fetch_sina({"key": "sina:sh000001", "code": "sh000001", "name": "上证指数"})
+        self.assertEqual(request.call_count, 2)
+        self.assertIn("relate_tid=first", request.call_args.args[0])
+        self.assertEqual(result["rawRows"], 2)
+        self.assertTrue(result["thirdTradingDayReached"])
+        self.assertIn("name=sh000001", result["url"])
+
+    def test_sina_stalled_cursor_does_not_claim_exhaustion(self) -> None:
+        page = {"data": {"threads": [sina_row("same", "2026-08-06 10:00:00", "a")]}}
+        with (
+            patch.object(core, "discover_sina_bid", return_value="9279"),
+            patch.object(core, "request_json", return_value=page),
+        ):
+            result = core.fetch_sina({"key": "sina:sh000001", "code": "sh000001", "name": "上证指数"})
+        self.assertEqual(result["coverageStatus"], "cursor_stalled_before_third_trading_day")
+        self.assertFalse(result["thirdTradingDayReached"])
+        self.assertIsNone(result["capHit"])
+
+    def test_sina_indices_reach_market_seat_without_entering_sector_seats(self) -> None:
+        specs, market_keys, sector_keys = core.build_source_specs()
+        index_keys = {"sina:sh000001", "sina:sz399001", "sina:sz399006"}
+        self.assertTrue(index_keys.issubset(market_keys))
+        self.assertTrue(index_keys.isdisjoint({key for keys in sector_keys.values() for key in keys}))
+        results = {}
+        for key in index_keys:
+            spec = specs[key]
+            posts = [core.make_post(
+                post_id=f"{key}-{day}-{i}", text="普通用户讨论今天被套了怎么办",
+                published=datetime(2026, 8, day, 10, tzinfo=CN_TZ),
+                comments=0, clicks=0, likes=0, source_key=key,
+                source_code=spec["code"], source_name=spec["name"],
+                platform="sina", author_key=f"{key}-{i}",
+            ) for day in (6, 5, 4) for i in range(6)]
+            results[key] = {**spec, "posts": posts, "fresh": True}
+        result = core.score_results_as_of(
+            results, market_keys, sector_keys,
+            as_of=datetime(2026, 8, 6, 16, tzinfo=CN_TZ),
+        )
+        fairness = result["broad"]["diagnostics"]["fairness"]
+        channels = {row["key"]: row for row in fairness["platformSummary"]}
+        self.assertEqual(channels["sina"]["expectedUnitCount"], 3)
+        self.assertEqual(channels["sina"]["observedUnitCount"], 3)
+        self.assertGreater(channels["sina"]["formalInfluence"], 0)
+        self.assertEqual(channels["sina"]["targetWeight"], 0.25)
+        self.assertFalse(channels["taoguba"]["available"])
+        self.assertEqual(channels["taoguba"]["neutralisedWeight"], 0.25)
+
     def test_ths_marks_hot_feed_and_comment_time_inheritance(self) -> None:
         comments = [
             {

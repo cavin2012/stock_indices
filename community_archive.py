@@ -77,12 +77,17 @@ def _serializable_post(
         "likesAtCollection": int(post.get("likes") or 0),
         "sourceKey": source_key,
         "sourceKeys": [source_key],
+        "sourceFirstCollectedAt": {source_key: collected_at.isoformat()},
         "sourceCode": str(post.get("sourceCode") or source.get("code") or ""),
         "source": str(post.get("source") or source.get("name") or ""),
         "platform": platform,
         "platformName": str(post.get("platformName") or ""),
         "authorKey": str(post.get("authorKey") or ""),
         "kind": str(post.get("kind") or "post"),
+        **{key: post[key] for key in (
+            "originalLength", "stockTagCount", "certified", "timeInherited",
+            "parentPostId", "anonymousPublicInitialPage",
+        ) if key in post},
     }
 
 
@@ -130,9 +135,20 @@ def archive_results(
                 continue
             existing_count += 1
             previous["lastCollectedAt"] = collected.isoformat()
+            # Enrich legacy archives without replacing first-seen text/interactions.
+            for field in ("originalLength", "stockTagCount", "certified", "timeInherited", "parentPostId", "anonymousPublicInitialPage"):
+                if field not in previous and field in item:
+                    previous[field] = item[field]
             sources = {str(value) for value in previous.get("sourceKeys", []) if value}
             sources.update(str(value) for value in item.get("sourceKeys", []) if value)
             previous["sourceKeys"] = sorted(sources)
+            first_by_source = dict(previous.get("sourceFirstCollectedAt") or {})
+            original_source = str(previous.get("sourceKey") or "")
+            if original_source and original_source not in first_by_source:
+                first_by_source[original_source] = previous.get("firstCollectedAt") or previous.get("collectedAt")
+            for source_key in item.get("sourceKeys", []):
+                first_by_source.setdefault(source_key, collected.isoformat())
+            previous["sourceFirstCollectedAt"] = first_by_source
         _atomic_json(path, sorted(current.values(), key=lambda item: (str(item.get("publishTime")), str(item.get("archiveKey")))))
 
     manifest_path = archive_dir / MANIFEST_NAME
@@ -230,7 +246,7 @@ def load_archived_results(
                 if published is None or not (start_at <= published <= end_at):
                     continue
                 first_collected = _parse_datetime(item.get("firstCollectedAt") or item.get("collectedAt"))
-                if observed_cutoff is not None and first_collected is not None and first_collected > observed_cutoff:
+                if observed_cutoff is not None and (first_collected is None or first_collected > observed_cutoff):
                     continue
                 platform = str(item.get("platform") or "unknown")
                 source_keys = [
@@ -239,6 +255,12 @@ def load_archived_results(
                 if not source_keys:
                     source_keys = [str(item.get("sourceKey") or "unknown")]
                 for source_key in dict.fromkeys(source_keys):
+                    source_first = (item.get("sourceFirstCollectedAt") or {}).get(source_key)
+                    if not source_first and source_key == item.get("sourceKey"):
+                        source_first = item.get("firstCollectedAt") or item.get("collectedAt")
+                    source_first_at = _parse_datetime(source_first)
+                    if observed_cutoff is not None and (source_first_at is None or source_first_at > observed_cutoff):
+                        continue
                     source = results.setdefault(source_key, {
                         "key": source_key,
                         "code": str(item.get("sourceCode") or source_key.split(":", 1)[-1]),
@@ -265,12 +287,20 @@ def load_archived_results(
                         "authorKey": str(item.get("authorKey") or ""),
                         "kind": str(item.get("kind") or "post"),
                         "collectedAt": str(item.get("firstCollectedAt") or item.get("collectedAt") or ""),
+                        "firstCollectedAt": str(source_first or item.get("firstCollectedAt") or item.get("collectedAt") or ""),
+                        **{key: item[key] for key in (
+                            "originalLength", "stockTagCount", "certified", "timeInherited",
+                            "parentPostId", "anonymousPublicInitialPage",
+                        ) if key in item},
                     })
         day += timedelta(days=1)
     manifest = _load_json(archive_dir / MANIFEST_NAME, {})
     runs = manifest.get("collectionRuns", {}) if isinstance(manifest, Mapping) else {}
     run_day = (observed_cutoff or end_at).date().isoformat()
     run = runs.get(run_day, {}) if isinstance(runs, Mapping) else {}
+    run_time = _parse_datetime(run.get("collectedAt")) if isinstance(run, Mapping) else None
+    if observed_cutoff is not None and (run_time is None or run_time > observed_cutoff):
+        run = {}
     coverage_rows = run.get("sourceCoverage", []) if isinstance(run, Mapping) else []
     for coverage in coverage_rows if isinstance(coverage_rows, list) else []:
         if not isinstance(coverage, Mapping):

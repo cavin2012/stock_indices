@@ -83,15 +83,15 @@ class SectorCatalogTests(unittest.TestCase):
 
     def test_source_plan_is_bounded_and_explicit(self) -> None:
         specs, market_keys, sector_keys = update_index.build_source_specs()
-        self.assertEqual(len(specs), 308)
-        self.assertEqual(len(market_keys), 4)
+        self.assertEqual(len(specs), 311)
+        self.assertEqual(len(market_keys), 7)
         platform_totals = {
             platform: sum(str(spec["platform"]) == platform for spec in specs.values())
             for platform in ("eastmoney", "sina", "ths", "taoguba")
         }
         self.assertEqual(
             platform_totals,
-            {"eastmoney": 93, "sina": 90, "ths": 35, "taoguba": 90},
+            {"eastmoney": 93, "sina": 93, "ths": 35, "taoguba": 90},
         )
         for sector_key, keys in sector_keys.items():
             platforms = [str(specs[key]["platform"]) for key in keys]
