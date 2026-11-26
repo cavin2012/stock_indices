@@ -887,3 +887,28 @@ footer { display: flex; justify-content: space-between; gap: 20px; padding: 24px
   .sector-dialog[open] { animation: none; }
   .sector-card, .sector-open-button span:last-child { transition: none; }
 }
+
+/* Compact section navigation: desktop sidebar, mobile horizontal rail. */
+.view-inactive { display: none !important; }
+.has-section-navigation .shell { padding-left: 190px; }
+.section-navigation { position: fixed; top: 110px; left: max(16px, calc((100vw - 1440px) / 2)); width: 166px; z-index: 30; padding: 16px 10px; border: 1px solid var(--line, #dce5dc); border-radius: 20px; background: #f6f8f1; box-shadow: 0 8px 30px #143b2010; }
+.nav-caption { padding: 0 10px 12px; color: var(--muted); font-size: 12px; letter-spacing: .12em; }
+.section-navigation button { display: flex; align-items: center; gap: 12px; width: 100%; border: 0; border-radius: 12px; padding: 13px 10px; background: transparent; color: #42534a; text-align: left; font: inherit; font-size: 14px; font-weight: 650; cursor: pointer; margin: 3px 0; }
+.section-navigation button:hover { background: #e8eee0; }
+.section-navigation button.active { background: #0b6b53; color: white; }
+.section-navigation button:focus-visible { outline: 3px solid #8bbd81; outline-offset: 2px; }
+.nav-icon { display: inline-flex; justify-content: center; align-items: center; width: 28px; height: 28px; font-size: 25px; line-height: 1; }
+.sector-foot { font-size: 14px; line-height: 1.85; }
+.sector-foot .sector-sample-copy { display: block; font-size: 15px; color: #344b40; margin-top: 10px; line-height: 1.9; max-height: 8.5em; overflow-y: auto; padding-right: 6px; }
+.sector-grid { max-height: 72vh; overflow-y: auto; padding: 4px 8px 20px 2px; align-items: start; }
+#stock-list { max-height: 72vh; overflow-y: auto; padding-right: 10px; }
+#stock-list .rank-main strong { font-size: 15px; line-height: 1.85; }
+.sector-post p { font-size: 16px; line-height: 1.9; }
+@media (max-width: 900px) {
+  .has-section-navigation .shell { padding-left: 20px; }
+  .section-navigation { position: sticky; top: 0; left: auto; width: auto; display: flex; overflow-x: auto; gap: 6px; padding: 8px; border-radius: 14px; margin-bottom: 20px; }
+  .nav-caption { display: none; }
+  .section-navigation button { width: auto; flex: 0 0 auto; padding: 8px 12px; gap: 6px; font-size: 13px; }
+  .nav-icon { width: 22px; height: 22px; font-size: 21px; }
+  .sector-grid, #stock-list { max-height: none; }
+}

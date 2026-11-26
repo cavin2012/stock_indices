@@ -1068,7 +1068,7 @@
           <div><span>情绪躁动 ${helpBadge("legacyHeat")}</span><strong>${available ? emotionHeat.toFixed(1) : "--"}</strong></div>
           <div><span>情绪方向 ${helpBadge("direction")}</span><strong>${available ? direction.toFixed(1) : "--"}</strong></div>
         </div>
-        <p class="sector-foot">${available ? `热度榜 ${sector.heatRank ? `#${Number(sector.heatRank)}` : "暂不硬排名"} · ${escapeHtml(sector.heatTier || "待判断")} · 公平性置信 ${escapeHtml(fairness.confidenceLabel || "--")}（${Number(fairness.reliabilityPercent || 0).toFixed(0)}%）<br>社区：${escapeHtml(sources)}${sample ? `<br>样本：<span class="${sentimentClass(sample.label)}">${escapeHtml(sample.label)}</span> · ${escapeHtml(sample.title)}` : ""}` : "当前缓存没有该板块可评分文本。板块定义与代表公司仍可查看；下一次联网成功更新后将自动补齐指数与信号。"}</p>
+        <p class="sector-foot">${available ? `热度榜 ${sector.heatRank ? `#${Number(sector.heatRank)}` : "暂不硬排名"} · ${escapeHtml(sector.heatTier || "待判断")} · 公平性置信 ${escapeHtml(fairness.confidenceLabel || "--")}（${Number(fairness.reliabilityPercent || 0).toFixed(0)}%）<br>社区：${escapeHtml(sources)}${sample ? `<span class="sector-sample-copy">样本：<span class="${sentimentClass(sample.label)}">${escapeHtml(sample.label)}</span> · ${escapeHtml(sample.title)}</span>` : ""}` : "当前缓存没有该板块可评分文本。板块定义与代表公司仍可查看；下一次联网成功更新后将自动补齐指数与信号。"}</p>
         <button type="button" class="sector-open-button" data-sector-open="${escapeHtml(sectorKey)}" aria-haspopup="dialog" aria-controls="sector-dialog" aria-label="查看${escapeHtml(sector.name)}板块详情">
           <span>${available ? "查看三大指数与六项信号" : "查看板块说明与代表公司"}</span><span aria-hidden="true">→</span>
         </button>
@@ -1643,7 +1643,60 @@
     $("#sector-grid").innerHTML = `<article class="sector-card"><div class="sector-title"><span>WAITING</span><h3>等待首次更新</h3></div><p class="sector-foot">板块社区矩阵会在更新后显示。</p></article>`;
   }
 
+  function installSectionNavigation() {
+    const main = $("#main-content");
+    if (!main) return;
+    const sections = [...main.children].filter((node) => node.tagName === "SECTION");
+    const groups = [
+      { id: "overview", label: "市场总览", icon: "◉", indexes: [0, 1, 3, 4] },
+      { id: "history", label: "历史趋势", icon: "↗", indexes: [5] },
+      { id: "signals", label: "社区信号", icon: "◌", indexes: [6] },
+      { id: "map", label: "板块地图", icon: "◈", indexes: [7] },
+      { id: "sectors", label: "板块排行", icon: "▥", indexes: [8] },
+      { id: "posts", label: "原帖抽样", icon: "☷", indexes: [9] },
+      { id: "method", label: "计算口径", icon: "⚙", indexes: [10, 11] },
+      { id: "evidence", label: "证据覆盖", icon: "◎", indexes: [2] }
+    ];
+    // Identify sections by their actual content: the public build omits evidence.
+    const matchers = {
+      overview: (s) => s.matches(".hero, .scale-strip, #heat-snapshot") || !!s.querySelector("#index-cards"),
+      history: (s) => s.matches(".chart-section"),
+      signals: (s) => !!s.querySelector("#signal-grid"),
+      map: (s) => s.matches(".sector-map-section"),
+      sectors: (s) => s.matches(".sector-section"),
+      posts: (s) => s.matches(".split-section"),
+      method: (s) => s.matches(".method-section, .note-card"),
+      evidence: (s) => s.id === "market-evidence"
+    };
+    const available = groups.filter((group) => sections.some(matchers[group.id]));
+    const nav = document.createElement("nav");
+    nav.className = "section-navigation";
+    nav.setAttribute("aria-label", "仪表盘内容导航");
+    nav.innerHTML = '<div class="nav-caption">内容导航</div>' + available.map((g) => '<button type="button" data-section-view="' + g.id + '"><span class="nav-icon" aria-hidden="true">' + g.icon + '</span><span>' + g.label + '</span></button>').join("");
+    main.before(nav);
+    document.body.classList.add("has-section-navigation");
+    function show(id, focus = false) {
+      if (!available.some((g) => g.id === id)) id = "overview";
+      for (const section of sections) {
+        section.classList.toggle("view-inactive", !matchers[id](section));
+      }
+      for (const button of nav.querySelectorAll("button")) {
+        const active = button.dataset.sectionView === id;
+        button.classList.toggle("active", active);
+        if (active) button.setAttribute("aria-current", "page");
+        else button.removeAttribute("aria-current");
+      }
+      if (focus) { main.focus({ preventScroll: true }); window.scrollTo({ top: 0, behavior: "smooth" }); }
+    }
+    nav.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-section-view]");
+      if (button) show(button.dataset.sectionView, true);
+    });
+    show("overview");
+  }
+
   installMetricHelp();
+  installSectionNavigation();
 
   if (!data || !data.scores || Number(data.version || 0) < 4) {
     renderEmpty();
