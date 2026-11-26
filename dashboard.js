@@ -891,23 +891,83 @@
     return { key: "cool-bear", label: "低热偏空", copy: "讨论较冷且方向偏空" };
   }
 
+  let sectorMapResizeObserver;
+
+  function arrangeSectorMap(map) {
+    sectorMapResizeObserver?.disconnect();
+    const points = [...map.querySelectorAll(".sector-map-point")].map((button) => ({
+      button, xPercent: Number(button.style.getPropertyValue("--map-x").replace("%", "")),
+      yPercent: Number(button.style.getPropertyValue("--map-y").replace("%", "")),
+      radius: Number(button.style.getPropertyValue("--point-size").replace("px", "")) / 2 + 5
+    }));
+    const lines = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    lines.classList.add("sector-map-leaders");
+    lines.setAttribute("aria-hidden", "true");
+    map.prepend(lines);
+    const layout = () => {
+      const width = map.clientWidth;
+      const height = map.clientHeight;
+      if (!width || !height) return;
+      const nodes = points.map((point) => ({ ...point, anchorX: point.xPercent * width / 100, anchorY: point.yPercent * height / 100,
+        x: point.xPercent * width / 100, y: point.yPercent * height / 100 }));
+      // Pull gently toward true coordinates, then resolve circle collisions.
+      for (let step = 0; step < 300; step += 1) {
+        if (step < 180) nodes.forEach((node) => {
+          node.x += (node.anchorX - node.x) * .012;
+          node.y += (node.anchorY - node.y) * .012;
+        });
+        for (let a = 0; a < nodes.length; a += 1) {
+          for (let b = a + 1; b < nodes.length; b += 1) {
+            const first = nodes[a], second = nodes[b];
+            let dx = second.x - first.x, dy = second.y - first.y;
+            let distance = Math.hypot(dx, dy);
+            if (distance < .01) { dx = (b % 2 ? 1 : -1); dy = 1; distance = Math.SQRT2; }
+            const minimum = first.radius + second.radius;
+            if (distance < minimum) {
+              const shift = (minimum - distance) / 2;
+              const sx = dx / distance * shift, sy = dy / distance * shift;
+              first.x -= sx; first.y -= sy; second.x += sx; second.y += sy;
+            }
+          }
+        }
+        nodes.forEach((node) => {
+          node.x = Math.max(node.radius + 8, Math.min(width - node.radius - 8, node.x));
+          node.y = Math.max(node.radius + 8, Math.min(height - node.radius - 8, node.y));
+        });
+      }
+      lines.setAttribute("viewBox", "0 0 " + width + " " + height);
+      lines.innerHTML = nodes.map((node) => {
+        node.button.style.setProperty("--map-x", (node.x / width * 100) + "%");
+        node.button.style.setProperty("--map-y", (node.y / height * 100) + "%");
+        return '<g><line x1="' + node.anchorX + '" y1="' + node.anchorY + '" x2="' + node.x + '" y2="' + node.y + '"/><circle cx="' + node.anchorX + '" cy="' + node.anchorY + '" r="2"/></g>';
+      }).join("");
+    };
+    sectorMapResizeObserver = new ResizeObserver(layout);
+    sectorMapResizeObserver.observe(map);
+    layout();
+  }
+
   function renderSectorMap(snapshot) {
     const map = $("#sector-map");
     const summary = $("#sector-map-summary");
+    const legend = $("#sector-map-legend");
     if (!map || !summary) return;
     const sectors = Array.isArray(snapshot.sectorIndices) ? snapshot.sectorIndices.filter(sectorIsAvailable) : [];
     if (!sectors.length) {
       summary.innerHTML = "";
+      if (legend) legend.innerHTML = "";
       map.innerHTML = `<p class="sector-map-empty">更新后将在这里显示板块情绪地图。</p>`;
       return;
     }
-    const samples = sectors.map((sector) => Math.max(0, Number(tradingDayPostStats(sector.metrics || {}).total || 0)));
-    const minSample = Math.min(...samples);
-    const maxSample = Math.max(...samples);
-    const sizeFor = (sample) => {
-      const ratio = maxSample > minSample ? (Math.sqrt(sample) - Math.sqrt(minSample)) / (Math.sqrt(maxSample) - Math.sqrt(minSample)) : 0.5;
-      return 14 + Math.max(0, Math.min(1, ratio)) * 14;
+    // Sorted identities keep colors stable when snapshot ranking changes.
+    const palette = ["#006E90", "#B34A00", "#6E43A3", "#087F5B", "#BD3155", "#526900", "#3759B8", "#A4268B", "#007E87", "#925C22", "#5963A6", "#D34D36", "#40822A", "#8C3C63", "#6B5928", "#1569A5", "#9562B1", "#008366", "#C23E79", "#646A35", "#384C73", "#A66A00", "#5650B0", "#327C68", "#9F4035", "#57803E", "#713A90", "#287C9B", "#A34F68", "#667024"];
+    const identities = [...new Set((snapshot.sectorIndices || []).map((sector) => String(sector.key || sector.name)))].sort();
+    const identityFor = (sector) => {
+      const index = identities.indexOf(String(sector.key || sector.name));
+      return { color: palette[index % palette.length], number: String(index + 1).padStart(2, "0") };
     };
+    // Bubble area (rather than radius) scales with heat on the 0–100 scale.
+    const sizeFor = (heat) => Math.sqrt(Math.max(0, Math.min(100, Number(heat))) / 100) * 54;
     const xFor = (direction) => 6 + ((Math.max(35, Math.min(65, direction)) - 35) / 30) * 88;
     const yFor = (heat) => 94 - ((Math.max(20, Math.min(90, heat)) - 20) / 70) * 88;
     const neutralY = yFor(50);
@@ -921,13 +981,14 @@
       const quadrant = sectorQuadrant(direction, heat);
       counts[quadrant.key] += 1;
       const key = String(sector.key || sector.name || index);
-      const pointSize = sizeFor(sample);
+      const pointSize = sizeFor(heat);
+      const identity = identityFor(sector);
       const labelSide = xFor(direction) > 77 ? "is-label-left" : xFor(direction) < 23 ? "is-label-right" : index % 2 ? "is-label-up" : "is-label-down";
       const title = `${sector.name}：综合热度 ${heat.toFixed(1)}，相对热度 ${relativeHeat.toFixed(1)}，情绪躁动 ${emotionHeat.toFixed(1)}，方向 ${direction.toFixed(1)}，三交易日有效样本 ${sample} 条，${quadrant.label}`;
       return `<button type="button" class="sector-map-point ${labelSide}" data-sector-map-open="${escapeHtml(key)}"
-        style="--map-x:${xFor(direction).toFixed(2)}%;--map-y:${yFor(heat).toFixed(2)}%;--point-size:${pointSize.toFixed(1)}px;--point-offset:${(pointSize / 2 + 4).toFixed(1)}px;--tip-offset:${(pointSize / 2 + 22).toFixed(1)}px;--point-color:${colorFor(heat)}"
+        style="--map-x:${xFor(direction).toFixed(2)}%;--map-y:${yFor(heat).toFixed(2)}%;--point-size:${pointSize.toFixed(1)}px;--point-offset:${(pointSize / 2 + 4).toFixed(1)}px;--tip-offset:${(pointSize / 2 + 22).toFixed(1)}px;--point-color:${identity.color}"
         aria-haspopup="dialog" aria-controls="sector-dialog" aria-label="${escapeHtml(title)}。点击查看详情" title="${escapeHtml(title)}">
-        <i aria-hidden="true"></i><strong>${escapeHtml(sector.name)}</strong><small>热度 ${heat.toFixed(1)} · 相对 ${relativeHeat.toFixed(1)} · 方向 ${direction.toFixed(1)}</small>
+        <i aria-hidden="true"></i><b class="sector-map-number" aria-hidden="true">${identity.number}</b><strong>${escapeHtml(sector.name)}</strong><small>热度 ${heat.toFixed(1)} · 相对 ${relativeHeat.toFixed(1)} · 方向 ${direction.toFixed(1)}</small>
       </button>`;
     }).join("");
     const quadrantMeta = [
@@ -945,6 +1006,25 @@
       <div class="sector-map-axis is-x" style="top:${neutralY}%"><span class="is-low">偏空 35</span><strong>情绪方向 50</strong><span class="is-high">65 偏多</span></div>
       <div class="sector-map-axis is-y"><span class="is-high">热 90</span><strong style="top:${neutralY}%">热度 50</strong><span class="is-low">20 冷</span></div>
       ${points}`;
+    arrangeSectorMap(map);
+    if (legend) {
+      legend.innerHTML = sectors.map((sector) => {
+        const identity = identityFor(sector);
+        const key = String(sector.key || sector.name);
+        return `<button type="button" class="sector-map-legend-item" data-sector-map-open="${escapeHtml(key)}" style="--point-color:${identity.color}" aria-haspopup="dialog" aria-controls="sector-dialog"><i aria-hidden="true"></i><span class="sector-map-legend-number">${identity.number}</span><strong>${escapeHtml(sector.name)}</strong><small>热度 ${Number(sector.heat ?? sector.signals?.heat ?? 0).toFixed(1)}</small></button>`;
+      }).join("");
+      const controls = [...map.closest(".sector-map-layout").querySelectorAll("[data-sector-map-open]")];
+      const highlight = (key) => {
+        map.classList.toggle("has-highlight", Boolean(key));
+        controls.forEach((button) => button.classList.toggle("is-highlighted", button.dataset.sectorMapOpen === key));
+      };
+      controls.forEach((button) => {
+        button.addEventListener("mouseenter", () => highlight(button.dataset.sectorMapOpen));
+        button.addEventListener("mouseleave", () => highlight(null));
+        button.addEventListener("focus", () => highlight(button.dataset.sectorMapOpen));
+        button.addEventListener("blur", () => highlight(null));
+      });
+    }
   }
 
   const sectorViewState = { sortKey: "heat", parentKey: "all" };
@@ -1550,7 +1630,7 @@
       const focusTarget = button || card.querySelector("[data-sector-open]") || card;
       openDialog(button?.dataset.sectorOpen || card.dataset.sectorKey, focusTarget);
     });
-    map?.addEventListener("click", (event) => {
+    (map?.closest(".sector-map-layout") || map)?.addEventListener("click", (event) => {
       const button = event.target.closest?.("[data-sector-map-open]");
       if (!button) return;
       openDialog(button.dataset.sectorMapOpen, button);

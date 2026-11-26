@@ -130,12 +130,15 @@
           <p>横轴看多空方向，纵轴看板块综合热度；V6 先做渠道内同日校准，再让四个渠道各占 25%</p>
         </div>
         <div class="sector-map-summary" id="sector-map-summary" aria-label="四象限板块数量"></div>
+        <div class="sector-map-layout">
         <div class="sector-map-shell">
           <div class="sector-map" id="sector-map" role="group" aria-label="30个细分板块的情绪方向与社区热度四象限图"></div>
         </div>
+        <aside class="sector-map-legend" aria-label="板块颜色图例"><h3>板块颜色图例</h3><p>颜色与编号对应板块，悬停高亮，点击查看详情</p><div id="sector-map-legend"></div></aside>
+        </div>
         <div class="sector-map-foot">
-          <span><i class="sector-map-size is-small"></i><i class="sector-map-size is-large"></i>圆点越大，最近三个交易日有效样本越多</span>
-          <span>悬停或聚焦圆点查看名称与数值，点击查看详情；纵轴以帖子数量和参与活跃为主</span>
+          <span><i class="sector-map-size is-small"></i><i class="sector-map-size is-large"></i>圆点越大，板块综合热度越高</span>
+          <span>颜色与编号识别板块，圆越大热度越高；圆点避让排布，细线端点为真实坐标</span>
         </div>
       </section>
 
