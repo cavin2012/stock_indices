@@ -1649,6 +1649,7 @@
     const sections = [...main.children].filter((node) => node.tagName === "SECTION");
     const groups = [
       { id: "overview", label: "市场总览", icon: "◉", indexes: [0, 1, 3, 4] },
+      { id: "indices", label: "三个分指数", icon: "▤" },
       { id: "history", label: "历史趋势", icon: "↗", indexes: [5] },
       { id: "signals", label: "社区信号", icon: "◌", indexes: [6] },
       { id: "map", label: "板块地图", icon: "◈", indexes: [7] },
@@ -1659,7 +1660,8 @@
     ];
     // Identify sections by their actual content: the public build omits evidence.
     const matchers = {
-      overview: (s) => s.matches(".hero, .scale-strip, #heat-snapshot") || !!s.querySelector("#index-cards"),
+      overview: (s) => s.matches(".hero, .scale-strip, #heat-snapshot"),
+      indices: (s) => !!s.querySelector("#index-cards"),
       history: (s) => s.matches(".chart-section"),
       signals: (s) => !!s.querySelector("#signal-grid"),
       map: (s) => s.matches(".sector-map-section"),
